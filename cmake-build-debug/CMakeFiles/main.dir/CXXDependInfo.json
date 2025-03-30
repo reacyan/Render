@@ -1,0 +1,21 @@
+{
+	"bmi-installation" : null,
+	"compiler-frontend-variant" : "GNU",
+	"compiler-id" : "GNU",
+	"compiler-simulate-id" : "",
+	"config" : "Debug",
+	"cxx-modules" : {},
+	"dir-cur-bld" : "E:/project/DevCode/clion/render/cmake-build-debug",
+	"dir-cur-src" : "E:/project/DevCode/clion/render",
+	"dir-top-bld" : "E:/project/DevCode/clion/render/cmake-build-debug",
+	"dir-top-src" : "E:/project/DevCode/clion/render",
+	"exports" : [],
+	"forward-modules-from-target-dirs" : [],
+	"include-dirs" : 
+	[
+		"E:\\project\\DevCode\\clion\\render\\include"
+	],
+	"language" : "CXX",
+	"linked-target-dirs" : [],
+	"module-dir" : "E:/project/DevCode/clion/render/cmake-build-debug/CMakeFiles/main.dir"
+}

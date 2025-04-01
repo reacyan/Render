@@ -15,6 +15,8 @@ Model *model = nullptr;
 const int width  = 800;
 const int height = 800;
 
+TGAImage diffuseTex(1024,1024,TGAImage::RGB);
+
 //line algorithm
 void line(int x0, int y0, int x1, int y1, TGAImage& image, TGAColor color) {
     bool steep = false; //陡峭情况
@@ -71,58 +73,83 @@ void triangle2(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage& image, TGAColor color) {
 }
 
 //find barycentric
-Vec3f barycentric(Vec2i *pts, Vec2i P) {
+Vec3f barycentric(Vec3f *pts, Vec2i P) {
     Vec3f u = Vec3f(pts[2].x-pts[0].x, pts[1].x-pts[0].x, pts[0].x-P.x)^Vec3f(pts[2].y-pts[0].y, pts[1].y-pts[0].y, pts[0].y-P.y);  //重心坐标计算,(ABx,ACx,PAx)*(ABy,ACy,PAy)
     if (std::abs(u.z)<1) return {Vec3f(-1,1,1)};
     return {Vec3f(1.f-(u.x+u.y)/u.z, u.y/u.z, u.x/u.z)};
 }
 
 //bounding_box algorithm
-void triangle(Vec2i *pts, TGAImage &image, TGAColor color) {
-    Vec2i bboxmin(image.get_width()-1,  image.get_height()-1);
-    Vec2i bboxmax(0, 0);
-    Vec2i clamp(image.get_width()-1, image.get_height()-1);
-    for (int i=0; i<3; i++) {    //求出bounding box
-        bboxmin.x = std::max(0, std::min(bboxmin.x, pts[i].x));
-        bboxmin.y = std::max(0, std::min(bboxmin.y, pts[i].y));
-        bboxmax.x = std::min(clamp.x, std::max(bboxmax.x, pts[i].x));
-        bboxmax.y = std::min(clamp.y, std::max(bboxmax.y, pts[i].y));
+void triangle(Vec3f *pts, float *zbuffer, Vec2f *uvs, TGAImage &image, float intensity) {
+    Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+    Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
+    Vec2f clamp(image.get_width() - 1, image.get_height() - 1);
+    for (int i = 0; i < 3; i++) {
+        bboxmin.x = max(0.f, std::min(bboxmin.x, pts[i].x));
+        bboxmin.y = max(0.f, std::min(bboxmin.y, pts[i].y));
+        bboxmax.x = min(clamp.x, std::max(bboxmax.x, pts[i].x));
+        bboxmax.y = min(clamp.y, std::max(bboxmax.y, pts[i].y));
     }
     Vec2i P;
-    for (P.x=bboxmin.x; P.x<=bboxmax.x; P.x++) {
-        for (P.y=bboxmin.y; P.y<=bboxmax.y; P.y++) {
-            Vec3f bc_screen  = barycentric(pts, P);
-            if (bc_screen.x<0 || bc_screen.y<0 || bc_screen.z<0) continue;
-            image.set(P.x, P.y, color);
+    for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++) {
+        for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++) {
+            Vec3f bc_screen = barycentric(pts, P);
+            if (bc_screen.x < 0 || bc_screen.y < 0 || bc_screen.z < 0) continue;
+            float z = pts[0].z * bc_screen.x + pts[1].z * bc_screen.y + pts[2].z * bc_screen.z;
+            if (zbuffer[int(P.x + P.y * width)] < z) {
+                zbuffer[int(P.x + P.y * width)] = z;
+                float u = uvs[0].u * bc_screen.x + uvs[1].u * bc_screen.y + uvs[2].u * bc_screen.z;
+                float v = uvs[0].v * bc_screen.x + uvs[1].v * bc_screen.y + uvs[2].v * bc_screen.z;
+                TGAColor textColor = diffuseTex.get(u * 1024, v * 1024);
+                textColor=TGAColor(textColor.bgra[2]*intensity,textColor.bgra[1]*intensity,textColor.bgra[0]*intensity,255);
+                image.set(P.x, P.y, textColor);
+            }
         }
     }
 }
 
 int main(int argc, char** argv) {
-    model = new Model("obj/african_head.obj");
+    model = new Model("obj/african_head.obj"); //读取模型
+
+    diffuseTex.read_tga_file("tex/african_head_diffuse.tga"); //读取贴图
+
     TGAImage image(width, height, TGAImage::RGB);
     //线框渲染模型
-    Vec3f light_dir(0,0,-1);
-    for (int i=0;i<model->nfaces();i++) {
-        vector<int> face = model->face(i);
-        Vec2i screen_coords[3];
-        Vec3f world_coords[3];
-        for (int j=0;j<3;j++) {
-            Vec3f v=model->vert(face[j]);
-            screen_coords[j]=Vec2i((v.x+1)*width/2,(v.y+1)*height/2);
-            world_coords[j]=v;
+    Vec3f light_dir(0, 0, -1);
+    float *zbuffer = new float[width * height];
+    for (int i=0;i<width;i++) {
+        for (int j=0;j<height;j++) {
+            zbuffer[i+j*width]=-numeric_limits<float>::max();
         }
-        Vec3f n=(world_coords[2]-world_coords[0])^(world_coords[1]-world_coords[0]);
+    }
+    for (int i = 0; i < model->nfaces(); i++) {
+        vector<int> face = model->face(i);
+        Vec3f screen_coords[3];
+        Vec3f world_coords[3];
+        for (int j = 0; j < 3; j++) {
+            Vec3f v = model->vert(face[j]);
+            screen_coords[j] = Vec3f((v.x + 1) * width / 2, (v.y + 1) * height / 2, v.z);
+            world_coords[j] = v;
+        }
+
+        vector<int> textIndex = model->text(i);
+        Vec2f uv[3];
+        for (int j = 0; j < 3; j++) {
+            uv[j] = model->uv(textIndex[j]);
+        }
+
+        Vec3f n = (world_coords[2] - world_coords[0]) ^ (world_coords[1] - world_coords[0]);
         n.normalize();
-        float intersity=n*light_dir;
-        if (intersity>0) {
-            triangle(screen_coords,image, TGAColor(intersity*255, intersity*255, intersity*255, 255));
+        float intensity = n * light_dir;
+        if (intensity > 0) {
+            triangle(screen_coords, zbuffer, uv, image,intensity);
         }
     }
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
     image.write_tga_file("output.tga");
     delete model;
+    delete zbuffer;
     return 0;
 }
 
